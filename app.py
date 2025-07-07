@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from langchain_core.runnables import RunnableLambda
 from langchain_core.output_parsers import StrOutputParser
 from models.llm_models import RewrittenQuestion
-from utils import grade_document, get_unstructured_data, get_stractered_data, get_context
+from utils import grade_document, get_unstructured_data, get_structured_data, get_context
 import ssl
 from langchain.callbacks.base import BaseCallbackHandler
 from datetime import date
@@ -26,15 +26,40 @@ from langgraph.graph.message import add_messages
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
 
+
+class LLMFactory:
+    """Factory for creating LLM and embedding instances."""
+
+    CHAT_DEPLOYMENT = "gpt-4.1-mini"
+    EMBEDDING_DEPLOYMENT = "text-embedding-3-large"
+    API_VERSION = "2024-12-01-preview"
+    EMBEDDING_DIM = 3072
+
+    @staticmethod
+    def chat(temperature: float = 0.7) -> AzureChatOpenAI:
+        return AzureChatOpenAI(
+            azure_deployment=LLMFactory.CHAT_DEPLOYMENT,
+            openai_api_version=LLMFactory.API_VERSION,
+            temperature=temperature,
+        )
+
+    @staticmethod
+    def embeddings() -> AzureOpenAIEmbeddings:
+        return AzureOpenAIEmbeddings(
+            azure_deployment=LLMFactory.EMBEDDING_DEPLOYMENT,
+            openai_api_version=LLMFactory.API_VERSION,
+            dimensions=LLMFactory.EMBEDDING_DIM,
+        )
+
 class State(TypedDict):
     messages: Annotated[list, add_messages]
     history: Optional[dict]
     rewritten_question: Optional[str]
     context: Optional[str]
     data: Optional[dict]
-    structered_data: Optional[dict]
-    structered_data_documents: Optional[List[str]]
-    unstructered_data: Optional[List[str]]
+    structured_data: Optional[dict]
+    structured_data_documents: Optional[List[str]]
+    unstructured_data: Optional[List[str]]
     is_end: Optional[bool]
 
 
@@ -78,11 +103,7 @@ class StreamHandler(BaseCallbackHandler):
             yield self.queue.pop(0)
 
 def rewrite_question(state: State):
-    llm_history = AzureChatOpenAI(
-        azure_deployment="gpt-4.1-mini",
-        openai_api_version="2024-12-01-preview",
-        temperature=0.7 #more creative and less deterministic responses
-    )
+    llm_history = LLMFactory.chat()
 
     rewrite_question_prompt = """
 You are an expert assistant in communication clarity and context analysis.
@@ -117,12 +138,9 @@ Return your response in the following JSON format:
     
     return {"rewritten_question": rewritten_question}
 
-def get_structered_data(state: State):
-    llm = AzureChatOpenAI(
-        azure_deployment="gpt-4.1-mini",
-        openai_api_version="2024-12-01-preview",
-        temperature=0.7 #more creative and less deterministic responses
-    )
+def get_structured_data_state(state: State):
+    """Retrieve structured data from Neo4j based on the rewritten question."""
+    llm = LLMFactory.chat()
 
     text2cypher_prompt = ChatPromptTemplate.from_messages(
     [
@@ -159,9 +177,9 @@ Return your answer in the following JSON format:
 
     neo4j_graph._driver.verify_connectivity()
 
-    structured_data, documents = get_stractered_data(neo4j_graph, state["rewritten_question"], text2cypher_chain)
+    structured_data, documents = get_structured_data(neo4j_graph, state["rewritten_question"], text2cypher_chain)
 
-    return {"structered_data":structured_data, "structered_data_documents": documents}
+    return {"structured_data": structured_data, "structured_data_documents": documents}
 
 @app.get("/download-cv")
 async def download_cv():
@@ -170,12 +188,9 @@ async def download_cv():
         return FileResponse(path=file_path, filename="Simone Bitti CV.pdf", media_type="application/pdf")
     raise HTTPException(status_code=404, detail="CV file not found")
 
-def get_unstructered_data(state: State):
-    embeddings_3_large : AzureOpenAIEmbeddings = AzureOpenAIEmbeddings(
-        azure_deployment="text-embedding-3-large",
-        openai_api_version="2024-12-01-preview",
-        dimensions=3072
-    )
+def retrieve_unstructured_data(state: State):
+    """Fetch unstructured documents from the vector index."""
+    embeddings_3_large: AzureOpenAIEmbeddings = LLMFactory.embeddings()
 
     vector_index = Neo4jVector.from_existing_graph(
         embedding=embeddings_3_large,
@@ -185,9 +200,9 @@ def get_unstructered_data(state: State):
         embedding_node_property="embedding"
     )
 
-    unstructered_data = get_unstructured_data(vector_index, state["rewritten_question"])
+    unstructured_data = get_unstructured_data(vector_index, state["rewritten_question"])
 
-    return {"unstructered_data":unstructered_data}
+    return {"unstructured_data": unstructured_data}
 
 def generate_final_answer(state: State):
     message = state["rewritten_question"]
@@ -241,23 +256,19 @@ Context: {context}
 Today's date: {today}
 """
 
-    llm = AzureChatOpenAI(
-        azure_deployment="gpt-4.1-mini",
-        openai_api_version="2024-12-01-preview",
-        temperature=0.7 #more creative and less deterministic responses
-    )
+    llm = LLMFactory.chat()
 
     result = llm.invoke([SystemMessage(content=template)])
     return {"messages": result}
 
 def grade_documents_and_get_context(state: State):
-    documents = state.get("structered_data_documents", []) + state.get("unstructered_data", [])
+    documents = state.get("structured_data_documents", []) + state.get("unstructured_data", [])
     data = grade_document(
         question=state["rewritten_question"],
         documents=documents)
     
-    context = get_context(state["structered_data"], data)
-    # context = get_context(state["structered_data"], documents)
+    context = get_context(state["structured_data"], data)
+    # context = get_context(state["structured_data"], documents)
 
     return {"context": context}
 
@@ -273,17 +284,17 @@ async def stream_sse(text: str, history: str):
             
             graph_builder = StateGraph(State)
             graph_builder.add_node("rewrite_question", RunnableLambda(rewrite_question).with_config(tags=["nostream"]))
-            graph_builder.add_node("get_structered_data", RunnableLambda(get_structered_data).with_config(tags=["nostream"]))
-            graph_builder.add_node("get_unstructered_data", RunnableLambda(get_unstructered_data).with_config(tags=["nostream"]))
+            graph_builder.add_node("get_structured_data", RunnableLambda(get_structured_data_state).with_config(tags=["nostream"]))
+            graph_builder.add_node("get_unstructured_data", RunnableLambda(retrieve_unstructured_data).with_config(tags=["nostream"]))
             graph_builder.add_node("grade_documents_and_get_context", RunnableLambda(grade_documents_and_get_context).with_config(tags=["nostream"]))
             graph_builder.add_node("generate_final_answer", generate_final_answer)
             graph_builder.add_node("send_end", send_end)
 
             graph_builder.add_edge(START, "rewrite_question")
-            graph_builder.add_edge("rewrite_question", "get_structered_data")
-            graph_builder.add_edge("rewrite_question", "get_unstructered_data")
-            graph_builder.add_edge("get_unstructered_data", "grade_documents_and_get_context")
-            graph_builder.add_edge("get_structered_data", "grade_documents_and_get_context")
+            graph_builder.add_edge("rewrite_question", "get_structured_data")
+            graph_builder.add_edge("rewrite_question", "get_unstructured_data")
+            graph_builder.add_edge("get_unstructured_data", "grade_documents_and_get_context")
+            graph_builder.add_edge("get_structured_data", "grade_documents_and_get_context")
             graph_builder.add_edge("grade_documents_and_get_context", "generate_final_answer")
             graph_builder.add_edge("generate_final_answer", "send_end")
             graph_builder.add_edge("send_end", END)

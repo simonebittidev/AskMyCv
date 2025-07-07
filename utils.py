@@ -3,7 +3,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from pydantic import BaseModel, Field
 from typing import List
-import threading
+from concurrent.futures import ThreadPoolExecutor
 
 def execute_query(graph_obj, query, result_list, index):
     """Funzione helper per eseguire una query e salvare il risultato."""
@@ -33,21 +33,16 @@ def structured_retriever(graph, question: str, entity_chain) -> str:
             main_query = generated_cypher["main_query"]
             document_distinct_query = generated_cypher["document_distinct_query"]
             
-            results = [None, None] # results[0] per main_query, results[1] per document_distinct_query
+            results = [None, None]
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [
+                    executor.submit(execute_query, graph, main_query, results, 0),
+                    executor.submit(execute_query, graph, document_distinct_query, results, 1),
+                ]
+                for future in futures:
+                    future.result()
 
-            thread1 = threading.Thread(target=execute_query, args=(graph, main_query, results, 0))
-            thread2 = threading.Thread(target=execute_query, args=(graph, document_distinct_query, results, 1))
-
-            # Avvia i thread
-            thread1.start()
-            thread2.start()
-
-            # Attendi che entrambi i thread abbiano completato l'esecuzione
-            thread1.join()
-            thread2.join()
-
-            records = results[0]
-            documents = results[1]
+            records, documents = results
 
             return records, documents
 
@@ -107,7 +102,8 @@ Return your response in the following JSON format:
 
     return result.relevant_documents
 
-def get_stractered_data(graph, question: str, entity_chain):
+def get_structured_data(graph, question: str, entity_chain):
+    """Retrieve structured data from the graph using the generated Cypher queries."""
     structured_data, documents = structured_retriever(graph, question, entity_chain)
 
     return structured_data, documents
@@ -121,7 +117,8 @@ def get_unstructured_data(vector_index, question: str):
     
     return unstructured_data
 
-def grade_unstractered_data(question: str, unstructured_data: List[str]) -> str:
+def grade_unstructured_data(question: str, unstructured_data: List[str]) -> str:
+    """Grade relevance for unstructured documents."""
     return grade_document(question=question, documents=unstructured_data)
 
 def get_context(structured_data,documents):
