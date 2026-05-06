@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 from typing import List
 import threading
 
+from kg_builder.config import LLM_DEPLOYMENT, OPENAI_API_VERSION
+
 def execute_query(graph_obj, query, result_list, index):
     """Funzione helper per eseguire una query e salvare il risultato."""
     try:
@@ -60,8 +62,8 @@ def structured_retriever(graph, question: str, entity_chain) -> str:
 def grade_document(question: str, documents):
 
     llm = AzureChatOpenAI(
-        azure_deployment="gpt-4.1-mini",
-        openai_api_version="2024-12-01-preview",
+        azure_deployment=LLM_DEPLOYMENT,
+        openai_api_version=OPENAI_API_VERSION,
         temperature=0.7 #more creative and less deterministic responses
     )
 

@@ -14,3 +14,11 @@ neo4j
 PyMuPDF
 pandas
 apscheduler
+
+# kg_builder pipeline
+docling
+httpx
+pyyaml
+networkx
+python-igraph
+leidenalg

@@ -8,11 +8,14 @@ A personal study project that turns your CV and cover letter into an interactive
 
 **ChatMyCv** is a chat-bot application that lets you explore my professional background, skills and projects by asking natural-language questions. Under the hood:
 
-1. **Extraction** of entities and relationships from PDF CVs, cover letters—and soon GitHub READMEs—using a Large Language Model.  
-2. **Storage** in a Neo4j knowledge graph, where experiences, skills and projects become connected nodes.  
-3. **Querying**: incoming user questions are translated into Cypher queries by an LLM, then executed against the graph.  
-4. **Real-time streaming** of answers via Server-Sent Events (SSE).  
-5. **Orchestration** of data flows and chat logic with LangGraph.
+1. **Multi-source ingestion** powered by the `kg_builder` package:
+   - CV and cover letter PDFs are parsed to **Markdown** with [Docling](https://github.com/DS4SD/docling) — no vision-LLM needed for the parsing step.
+   - **Personal projects come from GitHub READMEs** (curated list in `config/projects.yml`), fetched directly via the GitHub API. The cover letter is no longer used to extract projects.
+2. **Per-source schemas** keep the graph clean: the cover letter cannot create `PersonalProject` nodes, those are anchored deterministically from GitHub metadata.
+3. **Storage** in a Neo4j knowledge graph with vector-bearing `Document` chunks (late-chunking blended embeddings) plus `CommunitySummary` nodes for GraphRAG-style global search.
+4. **Hybrid retrieval** at query time: vector + fulltext + graph traversal + project boost + community summaries.
+5. **Querying**: user questions are translated into Cypher by an LLM and merged with the hybrid retrieval context.
+6. **Real-time streaming** of answers via Server-Sent Events (SSE), orchestrated with LangGraph.
 
 This project is purely experimental, a playground for combining NLP, graph databases and modern backend/frontend tooling.
 
@@ -52,7 +55,7 @@ cd ChatMyCv
   pip install -r requirements.txt
   ```
 
-  2.	Set environment variables in a .env file:
+  2.	Set environment variables in a `.env` file (see `.env.example`):
 
   ```dotenv
   AZURE_OPENAI_ENDPOINT=<your-azure-openai-endpoint>
@@ -60,14 +63,20 @@ cd ChatMyCv
   NEO4J_URI=<your-neo4j-aura-uri>
   NEO4J_USERNAME=<username>
   NEO4J_PASSWORD=<password>
-  # Optional LangSmith tracing
-  LANGSMITH_TRACING=true
-  LANGSMITH_ENDPOINT=<your-langsmith-endpoint>
-  LANGSMITH_API_KEY=<your-langsmith-api-key>
-  LANGSMITH_PROJECT=<your-langsmith-project>
+  # Required for GitHub README ingestion (5000 req/h vs 60)
+  GITHUB_TOKEN=<your-personal-access-token>
+  GITHUB_USERNAME=simonebitti
   ```
 
-  3.	Start the FastAPI server:
+  3.	Curate the project list in `config/projects.yml` (each entry: `repo: "owner/name"`).
+
+  4.	Build the knowledge graph:
+
+  ```bash
+  python -m kg_builder
+  ```
+
+  5.	Start the FastAPI server:
 
   ```bash
   uvicorn app:app --reload
@@ -88,21 +97,39 @@ npm run dev
 	4.	Ask anything about my CV, cover letter or projects!
 
 ## 🛠 Pipeline Details
-	1.	Document Parsing
-	    •	PDFs (CV & cover letter) are parsed into text.
-	    •	Soon: GitHub README files will be ingested directly via API.
-	2.	Entity & Relation Extraction
-	    •	LLM prompts identify experiences, skills, technologies and project names.
-	    •	Relationships (e.g. “worked at → Company X”, “used → Technology Y”) become graph edges.
-	3.	Graph Construction
-	    •	Neo4j nodes represent entities; edges represent relations.
-	    •	Custom schema defined via neo4j_graph = Neo4jGraph(enhanced_schema=True).
-	4.	Query Translation
-	    •	User questions → LLM prompt → generated Cypher query.
-	    •	Queries executed via Neo4j driver; results streamed back.
-	5.	Real-time Chat
-	    •	SSE endpoint (/stream) sends incremental message chunks.
-	    •	Frontend renders them as they arrive for a fluid UX.
+
+The `kg_builder/` package owns the entire ingestion pipeline. Each module has
+a single responsibility and can be reused or replaced independently:
+
+```
+kg_builder/
+├── pipeline.py          # orchestrator: run_pipeline()
+├── config.py            # Settings + projects.yml loader
+├── models.py            # Pydantic models (SourceDocument, ProjectDoc, ...)
+├── sources/             # PdfSource (Docling) + GitHubSource (httpx)
+├── extraction/          # summarizer, chunker (late chunking), graph_extractor
+├── graph/               # Neo4j client, per-source schema, loader, communities
+└── retrieval/           # hybrid retriever used by app.py at query time
+```
+
+Pipeline stages (`python -m kg_builder`):
+
+1. **Wipe** the existing Neo4j graph and `MERGE` the `Person` anchor.
+2. **PDFs → Markdown** via Docling (fallback: vision-LLM Markdown).
+3. **GitHub READMEs** fetched for every repo in `config/projects.yml`.
+4. **Summarise → semantic chunk → embed** with late-chunking blend
+   (chunk vector mixed with the document-level vector for global context).
+5. **Anchor `PersonalProject` nodes** deterministically from GitHub metadata
+   (`MERGE` on repo full name) — the LLM never invents projects.
+6. **LLM graph extraction** under per-source schemas: CV / cover letter is
+   forbidden from producing `PersonalProject`; READMEs are restricted to
+   `Technology`, `ProgrammingLanguage`, `Concept`, `Topic`, `Skill`.
+7. **Community detection** (Leiden via Neo4j GDS, with `leidenalg` fallback)
+   produces `CommunitySummary` nodes for GraphRAG-style global queries.
+
+At query time, `app.py` uses `kg_builder.retrieval.HybridGraphRetriever`,
+which combines vector + fulltext on `Document` chunks, project-aware
+context boost, and community summaries.
 
 ⸻
 

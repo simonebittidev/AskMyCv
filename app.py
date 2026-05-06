@@ -7,13 +7,15 @@ from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from pathlib import Path
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_neo4j import Neo4jGraph, Neo4jVector
-from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
+from langchain_neo4j import Neo4jGraph
+from langchain_openai import AzureChatOpenAI
 from pydantic import BaseModel, Field
 from langchain_core.runnables import RunnableLambda
 from langchain_core.output_parsers import StrOutputParser
 from models.llm_models import RewrittenQuestion
-from utils import grade_document, get_unstructured_data, get_stractered_data, get_context
+from utils import grade_document, get_stractered_data, get_context
+from kg_builder.retrieval import build_retriever
+from kg_builder.config import LLM_DEPLOYMENT, OPENAI_API_VERSION
 import ssl
 from langchain.callbacks.base import BaseCallbackHandler
 from datetime import date
@@ -79,8 +81,8 @@ class StreamHandler(BaseCallbackHandler):
 
 def rewrite_question(state: State):
     llm_history = AzureChatOpenAI(
-        azure_deployment="gpt-4.1-mini",
-        openai_api_version="2024-12-01-preview",
+        azure_deployment=LLM_DEPLOYMENT,
+        openai_api_version=OPENAI_API_VERSION,
         temperature=0.7 #more creative and less deterministic responses
     )
 
@@ -119,8 +121,8 @@ Return your response in the following JSON format:
 
 def get_structered_data(state: State):
     llm = AzureChatOpenAI(
-        azure_deployment="gpt-4.1-mini",
-        openai_api_version="2024-12-01-preview",
+        azure_deployment=LLM_DEPLOYMENT,
+        openai_api_version=OPENAI_API_VERSION,
         temperature=0.7 #more creative and less deterministic responses
     )
 
@@ -171,23 +173,10 @@ async def download_cv():
     raise HTTPException(status_code=404, detail="CV file not found")
 
 def get_unstructered_data(state: State):
-    embeddings_3_large : AzureOpenAIEmbeddings = AzureOpenAIEmbeddings(
-        azure_deployment="text-embedding-3-large",
-        openai_api_version="2024-12-01-preview",
-        dimensions=3072
-    )
-
-    vector_index = Neo4jVector.from_existing_graph(
-        embedding=embeddings_3_large,
-        search_type="hybrid",
-        node_label="Document",
-        text_node_properties=["text"],
-        embedding_node_property="embedding"
-    )
-
-    unstructered_data = get_unstructured_data(vector_index, state["rewritten_question"])
-
-    return {"unstructered_data":unstructered_data}
+    """Hybrid retrieval: vector + project-aware boost + community summaries."""
+    retriever = build_retriever()
+    chunks = retriever.retrieve(state["rewritten_question"])
+    return {"unstructered_data": [c.to_string() for c in chunks]}
 
 def generate_final_answer(state: State):
     message = state["rewritten_question"]
@@ -242,8 +231,8 @@ Today's date: {today}
 """
 
     llm = AzureChatOpenAI(
-        azure_deployment="gpt-4.1-mini",
-        openai_api_version="2024-12-01-preview",
+        azure_deployment=LLM_DEPLOYMENT,
+        openai_api_version=OPENAI_API_VERSION,
         temperature=0.7 #more creative and less deterministic responses
     )
 
