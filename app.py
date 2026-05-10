@@ -79,7 +79,7 @@ class StreamHandler(BaseCallbackHandler):
 
 def rewrite_question(state: State):
     llm_history = AzureChatOpenAI(
-        azure_deployment="gpt-4.1-mini",
+        azure_deployment="gpt-5.4-mini",
         openai_api_version="2024-12-01-preview",
         temperature=0.7 #more creative and less deterministic responses
     )
@@ -119,7 +119,7 @@ Return your response in the following JSON format:
 
 def get_structered_data(state: State):
     llm = AzureChatOpenAI(
-        azure_deployment="gpt-4.1-mini",
+        azure_deployment="gpt-5.4-mini",
         openai_api_version="2024-12-01-preview",
         temperature=0.7 #more creative and less deterministic responses
     )
@@ -242,7 +242,7 @@ Today's date: {today}
 """
 
     llm = AzureChatOpenAI(
-        azure_deployment="gpt-4.1-mini",
+        azure_deployment="gpt-5.4-mini",
         openai_api_version="2024-12-01-preview",
         temperature=0.7 #more creative and less deterministic responses
     )

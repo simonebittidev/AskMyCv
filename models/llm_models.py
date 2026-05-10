@@ -31,3 +31,20 @@ class ChunkedSummary(BaseModel):
     chunks: List[Chunk] = Field(
         description="A list of semantically meaningful chunks, each with a title and content"
     )
+
+class GraphNode(BaseModel):
+    id: str = Field(description="Canonical identifier of the node (e.g. the entity name, normalized).")
+    type: str = Field(description="Node label/type, must be one of the allowed node types.")
+    properties: dict = Field(default_factory=dict, description="Optional key/value properties for the node.")
+
+class GraphRelationship(BaseModel):
+    source_id: str = Field(description="Canonical id of the source node.")
+    source_type: str = Field(description="Label/type of the source node.")
+    target_id: str = Field(description="Canonical id of the target node.")
+    target_type: str = Field(description="Label/type of the target node.")
+    type: str = Field(description="Relationship type in UPPER_SNAKE_CASE.")
+    properties: dict = Field(default_factory=dict, description="Optional key/value properties for the relationship.")
+
+class GraphExtraction(BaseModel):
+    nodes: List[GraphNode] = Field(description="Entities extracted from the text.")
+    relationships: List[GraphRelationship] = Field(description="Relationships among the extracted entities.")

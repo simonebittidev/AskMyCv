@@ -1,38 +1,78 @@
 import base64
+import os
+import re
 from datetime import date
 from typing import List
-import fitz
-from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
-from langchain_experimental.graph_transformers import LLMGraphTransformer
-from langchain_neo4j import Neo4jGraph
-import asyncio
-from langchain_core.documents import Document
-import os
-from langchain_core.prompts import ChatPromptTemplate
-from pydantic import BaseModel, Field
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import BaseModel, Field
 
-from models.llm_models import DocumentSummary, ChunkedSummary
+import fitz
+from dotenv import load_dotenv
+from neo4j import GraphDatabase
+from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
+
+load_dotenv()
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import HumanMessage, SystemMessage
+
+from models.llm_models import (
+    DocumentSummary,
+    ChunkedSummary,
+    GraphExtraction,
+)
 
 
 FILES_FOLDER = "files/Simone Bitti"
 
+ALLOWED_NODES = [
+    "Profiency",
+    "Person",
+    "Role",
+    "Skill",
+    "ProgrammingLanguage",
+    "Technology",
+    "Organization",
+    "PersonalProject",
+    "Language",
+    "Concept",
+    "Contact",
+    "Certification",
+    "Activity",
+    "Project",
+    "ProjectUrl",
+    "DateRange",
+]
+
+_LABEL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_REL_TYPE_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
+
+def _sanitize_label(label: str, allowed: List[str]) -> str:
+    """Return label only if present in the whitelist, else fallback to 'Entity'."""
+    if label in allowed and _LABEL_RE.match(label):
+        return label
+    return "Entity"
+
+
+def _sanitize_rel_type(rel_type: str) -> str:
+    """Normalize relationship type to UPPER_SNAKE_CASE and validate against a regex."""
+    candidate = re.sub(r"[^A-Za-z0-9_]+", "_", rel_type or "").upper().strip("_")
+    if not candidate or not _REL_TYPE_RE.match(candidate):
+        return "RELATED_TO"
+    return candidate
+
 
 def summarize_document(html_pages):
     llm = AzureChatOpenAI(
-        azure_deployment="gpt-4.1-mini",
+        azure_deployment="gpt-5.4-mini",
         openai_api_version="2024-12-01-preview",
         temperature=0.0
     )
 
     text=str(html_pages)
-   
+
     system_message = """
 You are an expert at analyzing and summarizing HTML documents extracted from PDF pages, specifically CVs (resumes) and Cover Letters.
 
-## Goal  
+## Goal
 Your task is to read the full text of an HTML document—extracted from a PDF page that may represent a CV or a Cover Letter—and produce:
 - A brief summary (2-3 sentences) that concisely describes the overall content and purpose of the document.
 - An extremely detailed summary of the person described in the document. This summary must capture all relevant information, structure, and content from the source, with a strong focus on faithfully describing the individual, their background, experience, skills, and any other available details.
@@ -58,9 +98,9 @@ The output must be only valid JSON, with no extra text, explanation, or commenta
 """
 
     human_message = f"Here is the HTML document to summarize: {text}"
-    
+
     summary = llm.with_structured_output(DocumentSummary).invoke([SystemMessage(content=system_message), HumanMessage(content=human_message)])
-    
+
     return  summary
 
 def convert_img_to_html(images):
@@ -85,7 +125,7 @@ You will be provided with a set of images, each representing a page from a PDF d
 - Do not include any explanations, comments, or content outside of the HTML.
 """
 
-    
+
     messages = [SystemMessage(content=system_prompt)]
 
     for image in images:
@@ -100,9 +140,9 @@ You will be provided with a set of images, each representing a page from a PDF d
         )
 
     prompt = ChatPromptTemplate.from_messages(messages)
-   
+
     llm = AzureChatOpenAI(
-        azure_deployment="gpt-4.1-mini",
+        azure_deployment="gpt-5.4-mini",
         openai_api_version="2024-12-01-preview",
         temperature=0.0
     )
@@ -112,16 +152,16 @@ You will be provided with a set of images, each representing a page from a PDF d
     response = chain.invoke({})
 
     html = response.content
-    
+
     return html
 
 def get_summary_chunks(summary):
     llm = AzureChatOpenAI(
-        azure_deployment="gpt-4.1-mini",
+        azure_deployment="gpt-5.4-mini",
         openai_api_version="2024-12-01-preview",
         temperature=0.0
     )
-   
+
     chunking_prompt = """
 You are an expert in document analysis and information structuring.
 
@@ -162,91 +202,176 @@ Return your response in the following JSON format:
 
 
     human_message = f"Here the summary to analyze: {summary}"
-    
+
     result = llm.with_structured_output(ChunkedSummary).invoke([SystemMessage(content=chunking_prompt), HumanMessage(content=human_message)])
-    
+
     return  result.chunks
 
-async def create_kg():
-    graph = Neo4jGraph(refresh_schema=False)
-    graph.query("""MATCH (n) DETACH DELETE n""")
-    print("Graph cleared.")
-    graph.close()
 
-    metadatas= []
+def extract_graph_from_chunk(llm, text: str, allowed_nodes: List[str], additional_instructions: str) -> GraphExtraction:
+    """Extract entities and relationships from a single text chunk using the LLM."""
+    system_prompt = f"""
+You are an expert in information extraction and knowledge graph construction.
 
-    for filename in os.listdir(FILES_FOLDER):
-        if filename.lower().endswith('.pdf'):
+## Goal
+Read the provided text and extract a knowledge graph as a list of nodes and relationships.
+
+## Allowed node types
+{", ".join(allowed_nodes)}
+
+## Instructions
+- Only emit nodes whose `type` is one of the allowed node types above. Do NOT invent new types.
+- Each node MUST have a canonical `id` (the entity name, normalized: trimmed, no surrounding quotes, consistent capitalization across mentions). Reuse the same `id` for the same real-world entity so duplicates can be merged.
+- Relationship `type` MUST be UPPER_SNAKE_CASE (e.g. WORKS_AT, HAS_SKILL, STUDIED_AT). Use concise, generic predicates.
+- Each relationship's `source_type` and `target_type` MUST match the `type` of an emitted node, and `source_id`/`target_id` MUST match its `id`.
+- Properties are optional: only add them when the value is explicitly present in the text and adds meaningful information.
+- Do not fabricate facts not present in the text.
+
+## Additional context
+{additional_instructions}
+"""
+    human_message = f"Text to extract from:\n{text}"
+    return llm.with_structured_output(GraphExtraction, method="function_calling").invoke(
+        [SystemMessage(content=system_prompt), HumanMessage(content=human_message)]
+    )
+
+
+def _clear_graph_tx(tx):
+    tx.run("MATCH (n) DETACH DELETE n")
+
+
+def _insert_chunk_tx(tx, doc_id: str, doc_props: dict, nodes: list, relationships: list):
+    """Single transaction: upsert Document, entity nodes, relationships, MENTIONED_IN edges."""
+    tx.run(
+        """
+        MERGE (d:Document {id: $doc_id})
+        SET d += $props
+        """,
+        doc_id=doc_id,
+        props=doc_props,
+    )
+
+    for n in nodes:
+        label = _sanitize_label(n["type"], ALLOWED_NODES)
+        tx.run(
+            f"""
+            MERGE (n:`{label}` {{id: $id}})
+            SET n += $props
+            WITH n
+            MATCH (d:Document {{id: $doc_id}})
+            MERGE (n)-[:MENTIONED_IN]->(d)
+            """,
+            id=n["id"],
+            props=n.get("properties") or {},
+            doc_id=doc_id,
+        )
+
+    for r in relationships:
+        src_label = _sanitize_label(r["source_type"], ALLOWED_NODES)
+        tgt_label = _sanitize_label(r["target_type"], ALLOWED_NODES)
+        rel_type = _sanitize_rel_type(r["type"])
+        tx.run(
+            f"""
+            MERGE (s:`{src_label}` {{id: $src_id}})
+            MERGE (t:`{tgt_label}` {{id: $tgt_id}})
+            MERGE (s)-[rel:`{rel_type}`]->(t)
+            SET rel += $props
+            """,
+            src_id=r["source_id"],
+            tgt_id=r["target_id"],
+            props=r.get("properties") or {},
+        )
+
+
+def create_kg():
+    driver = GraphDatabase.driver(
+        os.getenv("NEO4J_URI"),
+        auth=(os.getenv("NEO4J_USERNAME"), os.getenv("NEO4J_PASSWORD")),
+    )
+
+    with driver.session() as session:
+        session.execute_write(_clear_graph_tx)
+        print("Graph cleared.")
+
+        embeddings_3_large = AzureOpenAIEmbeddings(
+            azure_deployment="text-embedding-3-large",
+            openai_api_version="2024-12-01-preview",
+            dimensions=3072,
+        )
+
+        llm = AzureChatOpenAI(
+            azure_deployment="gpt-5.4-mini",
+            openai_api_version="2024-12-01-preview",
+            temperature=0.0,
+        )
+
+        for filename in os.listdir(FILES_FOLDER):
+            if not filename.lower().endswith(".pdf"):
+                continue
+
             filepath = os.path.join(FILES_FOLDER, filename)
             doc = fitz.open(filepath)
             print(f"Processo: {filename}")
 
             images = []
-
             for page_number in range(len(doc)):
                 page = doc[page_number]
                 pix = page.get_pixmap()
-                img_bytes = pix.tobytes(output='png')
+                img_bytes = pix.tobytes(output="png")
                 print(f"  Pagina {page_number+1}: {len(img_bytes)} bytes")
+                images.append(base64.b64encode(img_bytes).decode("ascii"))
 
-                image_base64 = base64.b64encode(img_bytes).decode('ascii')
-
-                images.append(image_base64)
-            
             html = convert_img_to_html(images)
-            if html:
-                summary = summarize_document(html.replace("```html",'').replace("\n",'').replace("```",""))
+            if not html:
+                continue
 
-                embeddings_3_large : AzureOpenAIEmbeddings = AzureOpenAIEmbeddings(
-                    azure_deployment="text-embedding-3-large",
-                    openai_api_version="2024-12-01-preview",
-                    dimensions=3072
-                )
+            cleaned_html = html.replace("```html", "").replace("\n", "").replace("```", "")
+            summary = summarize_document(cleaned_html)
+            chunks = get_summary_chunks(summary.detailed_summary)
 
-                chunks = get_summary_chunks(summary.detailed_summary) 
-                documents = []
-                for chunk in chunks:
-                    metadatas = {
-                        "embedding": embeddings_3_large.embed_query(chunk.content),
-                        "source": filename,
-                        "chunk_title": chunk.title,
-                        "keywords": chunk.keywords
-                    }
-                    document = Document(page_content=f"{chunk.title} \n {chunk.content}", metadata = metadatas)
-                    documents.append(document)
+            today = date.today().strftime("%Y-%m-%d")
+            additional_instructions = f"""
+All the HTML documents provided belong to the same original document (e.g., a multi-page CV or Cover Letter for a single person).
+Do not treat them as separate entities. Instead, merge and analyze the content as a single document, preserving the correct order and overall structure.
+Use the following brief overview as context to better understand the purpose and content:
+Summary of the document: {summary.brief_overview}
 
-                llm = AzureChatOpenAI(
-                    azure_deployment="gpt-4.1-mini",
-                    openai_api_version="2024-12-01-preview",
-                    temperature=0.0
-                )
+Today date is: {today}
+"""
 
-                today = date.today().strftime("%Y-%m-%d")
+            for idx, chunk in enumerate(chunks):
+                chunk_text = f"{chunk.title} \n {chunk.content}"
+                embedding = embeddings_3_large.embed_query(chunk.content)
 
-                brief_overview = f"""
-                    All the HTML documents provided belong to the same original document (e.g., a multi-page CV or Cover Letter for a single person).
-                    Do not treat them as separate entities. Instead, merge and analyze the content as a single document, preserving the correct order and overall structure.
-                    Use the following brief overview as context to better understand the purpose and content:
-                    Summary of the document: {summary.brief_overview}
-
-                    Today date is: {today}
-                    """
-
-                llm_transformer = LLMGraphTransformer(
+                extraction = extract_graph_from_chunk(
                     llm=llm,
-                    allowed_nodes=["Profiency, Person, Role, Skill, ProgrammingLanguage, Technology, Organization, PersonalProject, Language, Concept, Contact, Certification, Activity, Project", "ProjectUrl", "DateRange"],
-                    strict_mode=False,
-                    additional_instructions=brief_overview
+                    text=chunk_text,
+                    allowed_nodes=ALLOWED_NODES,
+                    additional_instructions=additional_instructions,
                 )
 
-                graph_documents = await llm_transformer.aconvert_to_graph_documents(documents)
-                print(f"Nodes:{graph_documents[0].nodes}")
-                print(f"Relationships:{graph_documents[0].relationships}")
+                print(f"  Chunk {idx+1}/{len(chunks)} '{chunk.title}': "
+                      f"{len(extraction.nodes)} nodes, {len(extraction.relationships)} relationships")
 
-                graph = Neo4jGraph(refresh_schema=False)
-                graph.add_graph_documents(graph_documents, include_source=True, baseEntityLabel=False)      
-                graph.close()
+                doc_id = f"{filename}::{idx}"
+                doc_props = {
+                    "text": chunk_text,
+                    "source": filename,
+                    "chunk_title": chunk.title,
+                    "keywords": chunk.keywords,
+                    "embedding": embedding,
+                }
+
+                session.execute_write(
+                    _insert_chunk_tx,
+                    doc_id,
+                    doc_props,
+                    [n.model_dump() for n in extraction.nodes],
+                    [r.model_dump() for r in extraction.relationships],
+                )
+
+    driver.close()
+
 
 if __name__ == "__main__":
-    asyncio.run(create_kg())
-    
+    create_kg()
