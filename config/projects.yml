@@ -9,17 +9,17 @@
 # top-level key as an override, so the second list silently replaces the first.
 
 projects:
-  # - repo: simonebittidev/ChatMyCv
-  #   display_name: "ChatMyCv"
+  - repo: simonebittidev/ChatMyCv
+    display_name: "ChatMyCv"
 
-  # - repo: simonebittidev/azure-devops-skillflow
-  #   display_name: "Azure DevOps SkillFlow"
+  - repo: simonebittidev/azure-devops-skillflow
+    display_name: "Azure DevOps SkillFlow"
 
-  # - repo: simonebittidev/Parallax
-  #   display_name: "Parallax"
+  - repo: simonebittidev/Parallax
+    display_name: "Parallax"
 
-  # - repo: simonebittidev/Quizzify
-  #   display_name: "Quizzify"
+  - repo: simonebittidev/Quizzify
+    display_name: "Quizzify"
 
   # Example additional entry — uncomment/edit:
   # - repo: simonebittidev/<another-repo>
