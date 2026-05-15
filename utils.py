@@ -60,7 +60,7 @@ def structured_retriever(graph, question: str, entity_chain) -> str:
 def grade_document(question: str, documents):
 
     llm = AzureChatOpenAI(
-        azure_deployment="gpt-5.4-mini",
+        azure_deployment="gpt-5.4",
         openai_api_version="2024-12-01-preview",
         temperature=0.7 #more creative and less deterministic responses
     )

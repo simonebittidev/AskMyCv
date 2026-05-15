@@ -15,3 +15,5 @@ pymupdf4llm
 neo4j-graphrag
 pandas
 apscheduler
+httpx
+pyyaml

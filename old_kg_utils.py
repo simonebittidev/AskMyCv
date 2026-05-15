@@ -62,7 +62,7 @@ def _sanitize_rel_type(rel_type: str) -> str:
 
 def summarize_document(html_pages):
     llm = AzureChatOpenAI(
-        azure_deployment="gpt-5.4-mini",
+        azure_deployment="gpt-5.4",
         openai_api_version="2024-12-01-preview",
         temperature=0.0
     )
@@ -142,7 +142,7 @@ You will be provided with a set of images, each representing a page from a PDF d
     prompt = ChatPromptTemplate.from_messages(messages)
 
     llm = AzureChatOpenAI(
-        azure_deployment="gpt-5.4-mini",
+        azure_deployment="gpt-5.4",
         openai_api_version="2024-12-01-preview",
         temperature=0.0
     )
@@ -157,7 +157,7 @@ You will be provided with a set of images, each representing a page from a PDF d
 
 def get_summary_chunks(summary):
     llm = AzureChatOpenAI(
-        azure_deployment="gpt-5.4-mini",
+        azure_deployment="gpt-5.4",
         openai_api_version="2024-12-01-preview",
         temperature=0.0
     )
@@ -300,7 +300,7 @@ def create_kg():
         )
 
         llm = AzureChatOpenAI(
-            azure_deployment="gpt-5.4-mini",
+            azure_deployment="gpt-5.4",
             openai_api_version="2024-12-01-preview",
             temperature=0.0,
         )

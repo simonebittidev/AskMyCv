@@ -1,0 +1,27 @@
+# GitHub repositories to integrate into the knowledge graph.
+# Each entry: { repo: "owner/name", branch?: "main", display_name?: "..." }
+#
+# Add or remove repos here — the next run of `python ingestion.py` will
+# pick up the changes. README content + repo metadata (stars, topics,
+# language) are fetched automatically via the GitHub API.
+#
+# IMPORTANT: keep a SINGLE top-level `projects:` key. YAML treats a duplicate
+# top-level key as an override, so the second list silently replaces the first.
+
+projects:
+  # - repo: simonebittidev/ChatMyCv
+  #   display_name: "ChatMyCv"
+
+  # - repo: simonebittidev/azure-devops-skillflow
+  #   display_name: "Azure DevOps SkillFlow"
+
+  # - repo: simonebittidev/Parallax
+  #   display_name: "Parallax"
+
+  # - repo: simonebittidev/Quizzify
+  #   display_name: "Quizzify"
+
+  # Example additional entry — uncomment/edit:
+  # - repo: simonebittidev/<another-repo>
+  #   branch: main
+  #   display_name: "My Other Project"
