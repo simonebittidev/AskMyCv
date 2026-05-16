@@ -1,23 +1,20 @@
 import json
 from typing import List, Optional
 import os
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from pathlib import Path
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_neo4j import Neo4jGraph, Neo4jVector
+from langchain_neo4j import Neo4jGraph
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
-from pydantic import BaseModel, Field
+import neo4j
 from langchain_core.runnables import RunnableLambda
-from langchain_core.output_parsers import StrOutputParser
 from models.llm_models import RewrittenQuestion
-from utils import grade_document, get_unstructured_data, get_stractered_data, get_context
+from retriever.custom_retriever import CustomKnowledgeGraphRetriever
 import ssl
-from langchain.callbacks.base import BaseCallbackHandler
+from langchain_core.callbacks.base import BaseCallbackHandler
 from datetime import date
-import time
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from typing import Annotated
 from typing_extensions import TypedDict
@@ -25,6 +22,9 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
+import json
+from sentence_transformers import CrossEncoder
+from prompts import rewrite_question_prompt, final_answer_prompt
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
@@ -66,6 +66,22 @@ scheduler.start()
 client_path = Path("client/out")
 app.mount("/static", StaticFiles(directory=client_path), name="static")
 
+_driver = neo4j.GraphDatabase.driver(
+        os.getenv("NEO4J_URI"),
+        auth=(os.getenv("NEO4J_USERNAME"), os.getenv("NEO4J_PASSWORD")),
+    )
+
+_embedder = AzureOpenAIEmbeddings(
+        model=os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"),
+        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+        azure_deployment=os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"),
+        api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+        api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+        dimensions=int(os.getenv("AZURE_OPENAI_EMBEDDING_DIMENSIONS", 3072)),
+    )
+
+_reranker = CrossEncoder("BAAI/bge-reranker-v2-m3")  # multilingue, eccellente
+
 class StreamHandler(BaseCallbackHandler):
     def __init__(self):
         self.queue = []
@@ -79,36 +95,10 @@ class StreamHandler(BaseCallbackHandler):
 
 def rewrite_question(state: State):
     llm_history = AzureChatOpenAI(
-        azure_deployment="gpt-4.1-mini",
-        openai_api_version="2024-12-01-preview",
+        azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
+        openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
         temperature=0.7 #more creative and less deterministic responses
     )
-
-    rewrite_question_prompt = """
-You are an expert assistant in communication clarity and context analysis.
-
-## Goal
-Your task is to analyze the user's latest question together with the conversation history. If the question is unclear or ambiguous, you must use the conversation history to rewrite it in a way that makes it clearer and more precise, while preserving the original intent and all important details. If the question is already clear, simply return it as is.
-
-## Instructions
-
-- Carefully read the user's question and the conversation history.
-- If the question is ambiguous, vague, or hard to understand, rewrite it to be as clear and precise as possible, using relevant context from the conversation history to clarify meaning.
-- Do not invent or add information that is not present in the conversation.
-- If the question is already clear and unambiguous, return it exactly as it was given.
-- Always use the same language as the user's question.
-- Do not answer the question or provide any additional information—your only task is to rewrite it if needed.
-
-## Output Format
-
-Return your response in the following JSON format:
-
-{
-"rewritten_question": "<the clarified version of the user's question, or the original if it was already clear>"
-}
-
-- The output must be only valid JSON, with no extra explanation or commentary.
-"""
 
     messages = [SystemMessage(content=rewrite_question_prompt), HumanMessage(content=f"User's input: {state['messages'][-1]}\nChat history: {state['history']}")]
 
@@ -117,153 +107,43 @@ Return your response in the following JSON format:
     
     return {"rewritten_question": rewritten_question}
 
-def get_structered_data(state: State):
-    llm = AzureChatOpenAI(
-        azure_deployment="gpt-4.1-mini",
-        openai_api_version="2024-12-01-preview",
-        temperature=0.7 #more creative and less deterministic responses
-    )
-
-    text2cypher_prompt = ChatPromptTemplate.from_messages(
-    [
-        (
-            "system",
-            (
-                "Given an input question, convert it to a Cypher query. No pre-amble. "
-                "Do not wrap the response in any backticks or anything else. Respond with Cypher statements only!"
-            ),
-        ),
-        (
-            "human",
-            (
-                """You are a Neo4j expert. Given an input question, create a syntactically correct Cypher query to run.
-Do not wrap the response in any backticks or anything else. Respond with Cypher statements only!
-
-Here is the schema information
-{schema}
-
-User input: {question}
-
-Return your answer in the following JSON format:
-{{
-  "main_query": "<a Cypher query to answer the user's question>",
-  "document_distinct_query": "<a Cypher query that, using the same pattern as main_query, returns an array of strings, each string being the full text (for example, the 'text' property) of a DISTINCT Document node from which the main_query results are extracted. The output of this query must be a list of strings, each containing the full text of a relevant document.>"
-}}
-"""
-            ),
-        ),
-    ]
-    )
-
-    text2cypher_chain = text2cypher_prompt | llm | StrOutputParser()
-
-    neo4j_graph._driver.verify_connectivity()
-
-    structured_data, documents = get_stractered_data(neo4j_graph, state["rewritten_question"], text2cypher_chain)
-
-    return {"structered_data":structured_data, "structered_data_documents": documents}
-
 @app.get("/download-cv")
 async def download_cv():
-    file_path = Path("files/Simone Bitti/Simone Bitti CV.pdf")
+    file_path = Path("files/simonebitticv.pdf")
     if file_path.exists():
-        return FileResponse(path=file_path, filename="Simone Bitti CV.pdf", media_type="application/pdf")
+        return FileResponse(path=file_path, filename="simonebitticv.pdf", media_type="application/pdf")
     raise HTTPException(status_code=404, detail="CV file not found")
-
-def get_unstructered_data(state: State):
-    embeddings_3_large : AzureOpenAIEmbeddings = AzureOpenAIEmbeddings(
-        azure_deployment="text-embedding-3-large",
-        openai_api_version="2024-12-01-preview",
-        dimensions=3072
-    )
-
-    vector_index = Neo4jVector.from_existing_graph(
-        embedding=embeddings_3_large,
-        search_type="hybrid",
-        node_label="Document",
-        text_node_properties=["text"],
-        embedding_node_property="embedding"
-    )
-
-    unstructered_data = get_unstructured_data(vector_index, state["rewritten_question"])
-
-    return {"unstructered_data":unstructered_data}
 
 def generate_final_answer(state: State):
     message = state["rewritten_question"]
     context = state["context"]
     today = state.get("today", date.today().isoformat())
 
-    template = f"""
-You are Ask my cv, a virtual assistant designed to answer user questions about Simone. Your purpose is to provide precise, well-structured answers that help the user understand Simone's professional profile, skills, and experiences.
-
-## Provided Information
-You will receive:
-- The user's question.
-- Context information including:
-    1. Structured data from a knowledge graph.
-    2. Unstructured data from documents in a vector database, all relevant to Simone.
-
-## Goal
-Analyze all the provided context and craft a final response that highlights Simone's strengths and relevant experiences, always staying grounded in the information available.
-
-## Instructions
-
-- Use **only** information provided in the context.
-- Do **not** mention your sources or explain how you derived your answer. Respond as if you already know Simone.
-- Structure your response clearly:
-    - Begin with a concise, direct answer or summary.
-    - Use paragraphs to organize separate ideas.
-    - Highlight important skills, achievements, or traits in **bold** (Markdown).
-    - Use **Markdown formatting only**.
-    - Use bullet points (`-`) for lists.
-    - Insert a horizontal line (`---`) when needed for clarity.
-    - Format links as [text](url).
-- Rephrase and summarize the context. Do **not** copy-paste or invent information.
-- Never exaggerate Simone’s responsibilities or achievements. Only mention leadership, management, or specific results if explicitly stated in the context. Do not attribute to Simone any role or accomplishment not present in the context.
-- The tone must be natural and friendly, helping the user quickly understand Simone's background and skills.
-- Make the answer polished and easy to appreciate.
-- Never mention the context, your assistant role, or explain the type of answer you are giving. Just provide the answer directly.
-
-## Special Instructions
-
-- For casual, playful, or off-topic (chitchat) questions, reply with a witty, ironic tone, always in support of Simone, but without exaggeration. Be relatable, add humor, but remain credible.
-- If asked about your identity, say you are Ask my cv, a virtual assistant designed to answer questions about Simone.
-- If the user asks to download Simone's CV, you can provide the following answer "[Scarica il CV di Simone](/download-cv)".
-
-## Output Language
-Always respond in the **same language** as the user's input.
-
-User Input: {message}
-
-Context: {context}
-
-Today's date: {today}
-"""
-
     llm = AzureChatOpenAI(
-        azure_deployment="gpt-4.1-mini",
-        openai_api_version="2024-12-01-preview",
+        azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
+        openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
         temperature=0.7 #more creative and less deterministic responses
     )
 
-    result = llm.invoke([SystemMessage(content=template)])
+    result = llm.invoke([SystemMessage(content=final_answer_prompt.format(message=message, context=context, today=today))])
     return {"messages": result}
-
-def grade_documents_and_get_context(state: State):
-    documents = state.get("structered_data_documents", []) + state.get("unstructered_data", [])
-    data = grade_document(
-        question=state["rewritten_question"],
-        documents=documents)
-    
-    context = get_context(state["structered_data"], data)
-    # context = get_context(state["structered_data"], documents)
-
-    return {"context": context}
 
 def send_end(state: State):
     return {"messages": AIMessage(content="[DONE]")}
-    
+
+def search_documents(state: State):
+    query = state["rewritten_question"] or state["messages"][-1].content
+
+    retriever = CustomKnowledgeGraphRetriever(
+        driver=_driver,
+        embedder=_embedder,
+        reranker=_reranker
+    )
+
+    context = retriever.search(query)
+
+    return {"context": context}
+
 @app.get("/stream")
 async def stream_sse(text: str, history: str):
     async def event_generator(text, history):
@@ -273,18 +153,13 @@ async def stream_sse(text: str, history: str):
             
             graph_builder = StateGraph(State)
             graph_builder.add_node("rewrite_question", RunnableLambda(rewrite_question).with_config(tags=["nostream"]))
-            graph_builder.add_node("get_structered_data", RunnableLambda(get_structered_data).with_config(tags=["nostream"]))
-            graph_builder.add_node("get_unstructered_data", RunnableLambda(get_unstructered_data).with_config(tags=["nostream"]))
-            graph_builder.add_node("grade_documents_and_get_context", RunnableLambda(grade_documents_and_get_context).with_config(tags=["nostream"]))
+            graph_builder.add_node("search_documents", RunnableLambda(search_documents).with_config(tags=["nostream"]))
             graph_builder.add_node("generate_final_answer", generate_final_answer)
             graph_builder.add_node("send_end", send_end)
 
             graph_builder.add_edge(START, "rewrite_question")
-            graph_builder.add_edge("rewrite_question", "get_structered_data")
-            graph_builder.add_edge("rewrite_question", "get_unstructered_data")
-            graph_builder.add_edge("get_unstructered_data", "grade_documents_and_get_context")
-            graph_builder.add_edge("get_structered_data", "grade_documents_and_get_context")
-            graph_builder.add_edge("grade_documents_and_get_context", "generate_final_answer")
+            graph_builder.add_edge("rewrite_question", "search_documents")
+            graph_builder.add_edge("search_documents", "generate_final_answer")
             graph_builder.add_edge("generate_final_answer", "send_end")
             graph_builder.add_edge("send_end", END)
 
@@ -305,6 +180,7 @@ async def stream_sse(text: str, history: str):
                         yield "data: [DONE]\n\n"
                     else:
                         yield f"data: {json.dumps({'role': 'ai', 'content': token})}\n\n"
+        
         except Exception as e:
             print(f"Error in event generator: {e}")
             yield f"data: {json.dumps({'role': 'ai', 'content': '[ERROR]'})}\n\n"

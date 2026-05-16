@@ -1,7 +1,6 @@
 langchain
 langchain-openai
 langchain-community
-langchain-experimental
 langgraph
 pillow
 python-dotenv
@@ -12,5 +11,11 @@ gunicorn
 langchain-neo4j
 neo4j
 PyMuPDF
+pymupdf4llm
+neo4j-graphrag
 pandas
 apscheduler
+httpx
+pyyaml
+sentence-transformers>=3.0,<4.0
+torch>=2.0,<3.0
