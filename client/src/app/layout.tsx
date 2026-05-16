@@ -1,6 +1,18 @@
 import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import Footer from "@/components/footer";
+
+const geist = Geist({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
+});
+
+const geistMono = Geist_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Ask my cv - Simone Bitti",
@@ -12,16 +24,15 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  
+
   return (
-    <html lang="en" className="h-full">
+    <html lang="en" className={`${geist.variable} ${geistMono.variable} h-full`}>
       <head>
           <link rel="icon" href="favicon.ico" type="icon"/>
           <meta charSet="UTF-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
-          {/* <CookieWidget/> */}
       </head>
-      <body className="min-h-screen flex flex-col">
+      <body className="min-h-screen flex flex-col bg-cream text-ink antialiased font-sans">
         {children}
       </body>
     </html>

@@ -56,8 +56,7 @@ class MarkdownSection(BaseModel):
     order: int
 
 _HEADERS_TO_SPLIT = [
-    ("#", "h1"), ("##", "h2"), ("###", "h3"),
-    ("####", "h4"), ("#####", "h5"), ("######", "h6"),
+    ("#", "h1"), ("##", "h2"), ("###", "h3"), ("####", "h4")
 ]
 
 def split_markdown(md: str, chunk_size: int = 1800, chunk_overlap: int = 100) -> List[MarkdownSection]:

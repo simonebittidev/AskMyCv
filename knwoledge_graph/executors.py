@@ -50,9 +50,9 @@ class KnwoledgeGraphPipelineExecutor:
             node_types=loader.node_types,
             relationship_types=loader.relationship_types,
             patterns=loader.patterns,
-            additional_node_types=True,
-            additional_relationship_types=True,
-            additional_patterns=True,
+            additional_node_types=False,
+            additional_relationship_types=False,
+            additional_patterns=False,
         )
         async for batch in loader.iter_batches():
             embedded = await self._embedder_component.run(text_chunks=batch.chunks)
