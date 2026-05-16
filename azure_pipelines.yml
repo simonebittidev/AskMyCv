@@ -11,7 +11,7 @@ resources:
 variables:
 
   # Container registry service connection established during pipeline creation
-  dockerRegistryServiceConnection: '75a4d47d-3302-4735-a9c0-f5b43c2f2d5c'
+  dockerRegistryServiceConnection: 'e8467791-9399-4b8b-9cf6-23c4ae205b1e'
   imageRepository: 'askmycv'
   containerRegistry: 'simoneacr.azurecr.io'
   dockerfilePath: '**/Dockerfile'

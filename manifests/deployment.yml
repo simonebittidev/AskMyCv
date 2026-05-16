@@ -32,6 +32,16 @@ spec:
           value: "pr-vacant-starter-88"
         - name: LANGSMITH_ENDPOINT
           value: "https://api.smith.langchain.com"
+        - name: AZURE_OPENAI_DEPLOYMENT
+          value: "gpt-5.4"
+        - name: AZURE_OPENAI_API_VERSION
+          value: "2024-12-01-preview"
+        - name: AZURE_OPENAI_EMBEDDING_DEPLOYMENT
+          value: "text-embedding-3-large"
+        - name: AZURE_OPENAI_EMBEDDING_DIMENSIONS
+          value: "3072"
+        - name: GITHUB_USERNAME
+          value: "simonebittidev"
         - name: AZURE_OPENAI_API_KEY
           valueFrom:
             secretKeyRef:
@@ -47,5 +57,10 @@ spec:
             secretKeyRef:
               name: askmycv-secrets
               key: LANGSMITH_API_KEY
+        - name: GITHUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: askmycv-secrets
+              key: GITHUB_TOKEN
       imagePullSecrets:
         - name: acr-auth
