@@ -62,5 +62,12 @@ spec:
             secretKeyRef:
               name: askmycv-secrets
               key: GITHUB_TOKEN
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "250m"
+          limits:
+            memory: "3Gi"
+            cpu: "1000m"
       imagePullSecrets:
         - name: acr-auth
