@@ -100,6 +100,23 @@ class KnwoledgeGraphPipelineExecutor:
         else:
             print("No residual duplicates.")
 
+    def _ensure_indexes(self) -> None:
+        with self._driver.session() as session:
+            session.run(
+                """
+                CREATE VECTOR INDEX chunk_embedding IF NOT EXISTS
+                FOR (c:Chunk) ON c.embedding
+                OPTIONS {indexConfig: {`vector.dimensions`: 3072, `vector.similarity_function`: 'cosine'}}
+                """
+            )
+            session.run(
+                """
+                CREATE FULLTEXT INDEX chunk_fulltext IF NOT EXISTS
+                FOR (c:Chunk) ON EACH [c.text]
+                """
+            )
+        print("Indexes ensured.")
+
     async def clean(self) -> None:
         """Utility to clear the graph before ingestion."""
 
@@ -110,6 +127,7 @@ class KnwoledgeGraphPipelineExecutor:
 
     async def run(self) -> None:
 
+        self._ensure_indexes()
         await self.clean()
 
         for loader in self._loaders:

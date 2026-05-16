@@ -17,3 +17,5 @@ pandas
 apscheduler
 httpx
 pyyaml
+sentence-transformers>=3.0,<4.0
+torch>=2.0,<3.0
