@@ -29,7 +29,7 @@ def pdf_to_markdown(pdf_path: str) -> str:
         img_bytes = page.get_pixmap(dpi=200).tobytes("png")
         b64 = base64.b64encode(img_bytes).decode()
         resp = client.chat.completions.create(
-            model="gpt-5.4",
+            model=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
             messages=[{
                 "role": "user",
                 "content": [

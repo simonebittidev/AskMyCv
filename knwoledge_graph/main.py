@@ -22,7 +22,7 @@ from neo4j_graphrag.llm import AzureOpenAILLM
 
 load_dotenv()
 
-FILES_FOLDER = "files/Simone Bitti"
+FILES_FOLDER = "files"
 
 async def run_ingestion() -> None:
     driver = neo4j.GraphDatabase.driver(
@@ -31,18 +31,19 @@ async def run_ingestion() -> None:
     )
 
     llm = AzureOpenAILLM(
-        model_name="gpt-5.4",
+        model_name=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
         azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-        azure_deployment="gpt-5.4",
-        api_version="2024-12-01-preview",
+        azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
+        api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
         api_key=os.getenv("AZURE_OPENAI_API_KEY"),
         model_params={"temperature": 0.0},
     )
+    
     embedder = AzureOpenAIEmbeddings(
-        model="text-embedding-3-large",
+        model=os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"),
         azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-        azure_deployment="text-embedding-3-large",
-        api_version="2024-12-01-preview",
+        azure_deployment=os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"),
+        api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
         api_key=os.getenv("AZURE_OPENAI_API_KEY"),
         dimensions=3072,
     )
