@@ -1,4 +1,4 @@
-# ChatMyCv
+# AskMyCv
 
 A personal study project that turns a CV and GitHub profile into an interactive knowledge graph you can query via a chat interface.
 
@@ -6,7 +6,7 @@ A personal study project that turns a CV and GitHub profile into an interactive 
 
 ## Overview
 
-**ChatMyCv** is a chatbot that lets you explore a professional background, skills and projects by asking natural-language questions.
+**AskMyCv** is a chatbot that lets you explore a professional background, skills and projects by asking natural-language questions.
 
 The system has two independent phases:
 
@@ -101,8 +101,8 @@ The FastAPI `/stream` endpoint exposes this pipeline as a Server-Sent Events str
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/your-username/ChatMyCv.git
-cd ChatMyCv
+git clone https://github.com/your-username/AskMyCv.git
+cd AskMyCv
 ```
 
 ### 2. Backend
