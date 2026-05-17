@@ -38,6 +38,10 @@
   border-radius: 9999px;
 }
 
+html, body {
+  overflow-x: hidden;
+}
+
 hr {
   border-color: var(--color-warm);
 }

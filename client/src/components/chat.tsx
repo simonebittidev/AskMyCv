@@ -117,7 +117,7 @@ const ChatContent = () => {
   }, []);
 
   return (
-    <div className="flex flex-col h-[100dvh] w-full bg-cream text-ink">
+    <div className="flex flex-col h-[100dvh] w-full overflow-x-hidden bg-cream text-ink">
       {/* overscroll-contain stops iOS bounce from propagating outside this container */}
       <main className="flex-1 overflow-y-auto overscroll-contain" ref={chatBoxRef}>
         <div
@@ -166,7 +166,7 @@ const ChatContent = () => {
         </div>
       </main>
 
-      <div className="fixed bottom-0 inset-x-0 z-30 pb-3 pt-6 bg-gradient-to-t from-cream via-cream/90 to-transparent">
+      <div className="fixed bottom-0 inset-x-0 z-30 w-full overflow-x-hidden pb-3 pt-6 bg-gradient-to-t from-cream via-cream/90 to-transparent">
         <div className="mx-auto max-w-2xl px-4">
           {!chatMessages.length && (
             <div data-testid="suggested-actions" className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full mb-3">
@@ -190,7 +190,7 @@ const ChatContent = () => {
               onChange={(e) => setChatInput(e.target.value)}
               placeholder="Ask a follow-up…"
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-              className="flex-1 bg-transparent resize-none outline-none px-2 py-2 text-[15px] text-ink placeholder:text-muted-2 max-h-32"
+              className="flex-1 bg-transparent resize-none outline-none px-2 py-2 text-base text-ink placeholder:text-muted-2 max-h-32"
             />
             <button
               onClick={handleSend}
