@@ -53,13 +53,13 @@ neo4j_graph = Neo4jGraph(url=os.getenv('NEO4J_URI'), username=os.getenv('NEO4J_U
 # Scheduler to keep Neo4j Aura instance alive
 scheduler = BackgroundScheduler()
 def keep_neo4j_alive():
-    # Execute a simple Cypher query to keep the connection active
     with neo4j_graph._driver.session() as session:
         session.run("RETURN 1")
-        print("Keeping Neo4j Aura instance alive...")
+    with _driver.session() as session:
+        session.run("RETURN 1")
+    print("Keeping Neo4j Aura instance alive...")
 
-# Schedule the job to run once every day
-scheduler.add_job(keep_neo4j_alive, "interval", days=1, next_run_time=datetime.now())
+scheduler.add_job(keep_neo4j_alive, "interval", minutes=20, next_run_time=datetime.now())
 scheduler.start()
 
 # Serve React app (build)
@@ -69,6 +69,7 @@ app.mount("/static", StaticFiles(directory=client_path), name="static")
 _driver = neo4j.GraphDatabase.driver(
         os.getenv("NEO4J_URI"),
         auth=(os.getenv("NEO4J_USERNAME"), os.getenv("NEO4J_PASSWORD")),
+        max_connection_lifetime=180,
     )
 
 _embedder = AzureOpenAIEmbeddings(
@@ -80,7 +81,7 @@ _embedder = AzureOpenAIEmbeddings(
         dimensions=int(os.getenv("AZURE_OPENAI_EMBEDDING_DIMENSIONS", 3072)),
     )
 
-_reranker = CrossEncoder("BAAI/bge-reranker-v2-m3")  # multilingue, eccellente
+_reranker = CrossEncoder("cross-encoder/mmarco-mMiniLMv2-L12-H384-v1")
 
 class StreamHandler(BaseCallbackHandler):
     def __init__(self):

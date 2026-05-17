@@ -30,7 +30,7 @@ export default function RootLayout({
       <head>
           <link rel="icon" href="favicon.ico" type="icon"/>
           <meta charSet="UTF-8" />
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
       </head>
       <body className="min-h-screen flex flex-col bg-cream text-ink antialiased font-sans">
         {children}

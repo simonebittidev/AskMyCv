@@ -6,27 +6,14 @@ import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 
 const suggestedActions = [
-  {
-    label: "Experiences",
-    text: "Which companies has Simone worked for?",
-  },
-  {
-    label: "Technologies",
-    text: "What technologies does Simone have experience with?",
-  },
-  {
-    label: "Personal projects",
-    text: "What personal projects has Simone worked on?",
-  },
-  {
-    label: "Contact",
-    text: "How can I contact Simone?",
-  }
+  { label: "Experiences",      text: "Which companies has Simone worked for?" },
+  { label: "Technologies",     text: "What technologies does Simone have experience with?" },
+  { label: "Personal projects",text: "What personal projects has Simone worked on?" },
+  { label: "Contact",          text: "How can I contact Simone?" },
 ];
 
 function getRandomItems<T>(arr: T[], n: number): T[] {
-  const shuffled = arr.slice().sort(() => 0.5 - Math.random());
-  return shuffled.slice(0, n);
+  return arr.slice().sort(() => 0.5 - Math.random()).slice(0, n);
 }
 
 type ChatMessage = {
@@ -53,26 +40,24 @@ const mdComponents: Components = {
 
 const ChatContent = () => {
   const chatBoxRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [isInputFocused, setInputFocused] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const [aiError, setAiError] = useState(false);
+  const [, setAiError] = useState(false);
+
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+
+  const [actionsToShow] = useState(() =>
+    isMobile ? getRandomItems(suggestedActions, 2) : suggestedActions
+  );
 
   const handleSuggestedClick = (text: string) => {
-      setChatMessages(prev => [
-        ...prev,
-        { role: 'human', content: text },
-        { role: 'ai', content: '' }
-      ]);
-      startStream(text);
+    setChatMessages(prev => [...prev, { role: 'human', content: text }, { role: 'ai', content: '' }]);
+    startStream(text);
   };
 
   const startStream = (text: string) => {
     setAiError(false);
-
     eventSourceRef.current?.close();
 
     const encodedHistory = encodeURIComponent(JSON.stringify(chatMessages.slice(-3)));
@@ -84,9 +69,7 @@ const ChatContent = () => {
     eventSource.onmessage = (event) => {
       if (event.data === "[DONE]") {
         eventSource.close();
-        if (eventSourceRef.current === eventSource) {
-          eventSourceRef.current = null;
-        }
+        if (eventSourceRef.current === eventSource) eventSourceRef.current = null;
         return;
       }
 
@@ -97,10 +80,7 @@ const ChatContent = () => {
         const updated = [...prev];
         const lastMsg = updated[updated.length - 1];
         if (lastMsg?.role === 'ai') {
-          updated[updated.length - 1] = {
-            ...lastMsg,
-            content: currentMessage,
-          };
+          updated[updated.length - 1] = { ...lastMsg, content: currentMessage };
           return updated;
         }
         return [...updated, { role: "ai", content: data.content }];
@@ -110,23 +90,23 @@ const ChatContent = () => {
     eventSource.onerror = () => {
       console.error("Errore nella ricezione SSE");
       eventSource.close();
-      if (eventSourceRef.current === eventSource) {
-        eventSourceRef.current = null;
-      }
+      if (eventSourceRef.current === eventSource) eventSourceRef.current = null;
     };
   };
 
   const handleSend = () => {
     if (!chatInput.trim()) return;
-
     const text = chatInput.trim();
     setChatMessages((prev) => [...prev, { role: 'human', content: text }, { role: 'ai', content: '' }]);
     setChatInput('');
     startStream(text);
   };
 
+  // Scroll the container (not the document) — avoids iOS Safari jumping the page
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = chatBoxRef.current;
+    if (!el || !chatMessages.length) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [chatMessages]);
 
   useEffect(() => {
@@ -136,24 +116,13 @@ const ChatContent = () => {
     };
   }, []);
 
-  const MOBILE_WIDTH = 768;
-  const isMobile = typeof window !== "undefined" && window.innerWidth < MOBILE_WIDTH;
-
-  const [actionsToShow] = useState<{
-    label: string;
-    text: string;
-  }[]>(() => {
-    return isMobile
-      ? getRandomItems(suggestedActions, 2)
-      : suggestedActions;
-  });
-
   return (
-    <div className="flex flex-col h-screen w-full bg-cream text-ink">
-      <main className="flex-1 overflow-y-auto" ref={chatBoxRef}>
+    <div className="flex flex-col h-[100dvh] w-full bg-cream text-ink">
+      {/* overscroll-contain stops iOS bounce from propagating outside this container */}
+      <main className="flex-1 overflow-y-auto overscroll-contain" ref={chatBoxRef}>
         <div
           className="mx-auto max-w-2xl px-4 pt-6"
-          style={{ paddingBottom: isInputFocused && isMobile ? "260px" : "160px" }}
+          style={{ paddingBottom: chatMessages.length === 0 ? "270px" : "130px" }}
         >
           {!chatMessages.length && (
             <div className="mt-8 mb-4 text-center">
@@ -194,8 +163,6 @@ const ChatContent = () => {
               </div>
             )
           ))}
-
-          <div ref={messagesEndRef} />
         </div>
       </main>
 
@@ -216,39 +183,26 @@ const ChatContent = () => {
             </div>
           )}
 
-          <div tabIndex={0}>
-            <div className="flex items-end gap-2 rounded-full glass border border-warm/60 px-3 py-2 shadow-sm">
-              <textarea
-                ref={inputRef}
-                value={chatInput}
-                rows={1}
-                onChange={(e) => setChatInput(e.target.value)}
-                placeholder="Ask a follow-up…"
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                className="flex-1 bg-transparent resize-none outline-none px-2 py-2 text-[15px] text-ink placeholder:text-muted-2 max-h-32"
-                onFocus={() => {
-                  setInputFocused(true);
-                  inputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-                }}
-                onBlur={() => {
-                  setInputFocused(false);
-                  setTimeout(() => {
-                    inputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-                  }, 100);
-                }}
-              />
-              <button
-                onClick={handleSend}
-                aria-label="Send"
-                className="w-9 h-9 flex-shrink-0 rounded-full bg-ink text-cream flex items-center justify-center hover:opacity-90 transition-opacity"
-              >
-                <ArrowUpIcon className="w-4 h-4" />
-              </button>
-            </div>
-            <p className="mt-2 text-center text-[11px] text-muted-2">
-              This is a personal study project; answers may be inaccurate.
-            </p>
+          <div className="flex items-end gap-2 rounded-full glass border border-warm/60 px-3 py-2 shadow-sm">
+            <textarea
+              value={chatInput}
+              rows={1}
+              onChange={(e) => setChatInput(e.target.value)}
+              placeholder="Ask a follow-up…"
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+              className="flex-1 bg-transparent resize-none outline-none px-2 py-2 text-[15px] text-ink placeholder:text-muted-2 max-h-32"
+            />
+            <button
+              onClick={handleSend}
+              aria-label="Send"
+              className="w-9 h-9 flex-shrink-0 rounded-full bg-ink text-cream flex items-center justify-center hover:opacity-90 transition-opacity"
+            >
+              <ArrowUpIcon className="w-4 h-4" />
+            </button>
           </div>
+          <p className="mt-2 text-center text-[11px] text-muted-2">
+            This is a personal study project; answers may be inaccurate.
+          </p>
         </div>
       </div>
     </div>
