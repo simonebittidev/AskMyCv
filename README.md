@@ -1,4 +1,8 @@
-# AskMyCv
+<h1>
+  <img src="https://github.com/user-attachments/assets/0b7467a4-2a0b-47e3-93fa-0dcfedad827c" 
+       width="40" height="40" alt="logo" valign="middle" />
+  &nbsp;AskMyCv
+</h1>
 
 A personal study project that turns a CV and GitHub profile into an interactive knowledge graph you can query via a chat interface.
 
