@@ -107,6 +107,10 @@ def rewrite_question(state: State):
     
     return {"rewritten_question": rewritten_question}
 
+@app.post("/")
+async def health_check_post():
+    return {"status": "ok"}
+
 @app.get("/download-cv")
 async def download_cv():
     file_path = Path("files/simonebitticv.pdf")
