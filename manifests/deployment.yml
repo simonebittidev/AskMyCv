@@ -6,6 +6,12 @@ metadata:
     app: askmycv
 spec:
   replicas: 1
+  progressDeadlineSeconds: 300
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
   selector:
     matchLabels:
       app: askmycv
@@ -62,6 +68,13 @@ spec:
             secretKeyRef:
               name: askmycv-secrets
               key: GITHUB_TOKEN
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 5005
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          failureThreshold: 6
         resources:
           requests:
             memory: "1Gi"

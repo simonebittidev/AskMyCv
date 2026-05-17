@@ -50,6 +50,12 @@ print(f"NEO4J_USERNAME: {os.getenv('NEO4J_USERNAME')}")
 
 neo4j_graph = Neo4jGraph(url=os.getenv('NEO4J_URI'), username=os.getenv('NEO4J_USERNAME'), password=os.getenv('NEO4J_PASSWORD'), enhanced_schema=True, driver_config={"max_connection_lifetime": 180})
 
+_driver = neo4j.GraphDatabase.driver(
+        os.getenv("NEO4J_URI"),
+        auth=(os.getenv("NEO4J_USERNAME"), os.getenv("NEO4J_PASSWORD")),
+        max_connection_lifetime=180,
+    )
+
 # Scheduler to keep Neo4j Aura instance alive
 scheduler = BackgroundScheduler()
 def keep_neo4j_alive():
@@ -65,12 +71,6 @@ scheduler.start()
 # Serve React app (build)
 client_path = Path("client/out")
 app.mount("/static", StaticFiles(directory=client_path), name="static")
-
-_driver = neo4j.GraphDatabase.driver(
-        os.getenv("NEO4J_URI"),
-        auth=(os.getenv("NEO4J_USERNAME"), os.getenv("NEO4J_PASSWORD")),
-        max_connection_lifetime=180,
-    )
 
 _embedder = AzureOpenAIEmbeddings(
         model=os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"),
