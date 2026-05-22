@@ -39,7 +39,7 @@ spec:
         - name: LANGSMITH_ENDPOINT
           value: "https://api.smith.langchain.com"
         - name: AZURE_OPENAI_DEPLOYMENT
-          value: "gpt-5.4"
+          value: "gpt-5.4-mini"
         - name: AZURE_OPENAI_API_VERSION
           value: "2024-12-01-preview"
         - name: AZURE_OPENAI_EMBEDDING_DEPLOYMENT
